@@ -1,115 +1,107 @@
 const canvas = document.getElementById('mapCanvas');
 const ctx = canvas.getContext('2d');
 
-// Ajustar resolución del canvas para mejor detalle
 canvas.width = 600;
 canvas.height = 600;
 
-// Implementación simplificada de Perlin Noise 2D
-const FastNoise = {
-  perm: new Uint8Array(512),
-  init(seed) {
-    let p = new Uint8Array(256);
-    for (let i = 0; i < 256; i++) p[i] = i;
-    // Mezclar permutación basada en la semilla
-    let s = Number(seed) || 12345;
-    for (let i = 255; i > 0; i--) {
-      s = (s * 16807) % 2147483647;
-      let j = Math.floor((s / 2147483647) * (i + 1));
-      let temp = p[i];
-      p[i] = p[j];
-      p[j] = temp;
-    }
-    for (let i = 0; i < 512; i++) this.perm[i] = p[i & 255];
-  },
-  fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); },
-  lerp(t, a, b) { return a + t * (b - a); },
-  grad(hash, x, y) {
-    const h = hash & 7;
-    const u = h < 4 ? x : y;
-    const v = h < 4 ? y : x;
-    return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
-  },
-  noise(x, y) {
-    const X = Math.floor(x) & 255;
-    const Y = Math.floor(y) & 255;
-    x -= Math.floor(x);
-    y -= Math.floor(y);
-    const u = this.fade(x);
-    const v = this.fade(y);
-    const A = this.perm[X] + Y, B = this.perm[X + 1] + Y;
+// Configuración de la cuadrícula de Necesse (11x11 islas visibles)
+const GRID_SIZE = 9; 
+const ISLAND_PIXEL_SIZE = canvas.width / GRID_SIZE;
 
-    return this.lerp(v, 
-      this.lerp(u, this.grad(this.perm[A], x, y), this.grad(this.perm[B], x - 1, y)),
-      this.lerp(u, this.grad(this.perm[A + 1], x, y - 1), this.grad(this.perm[B + 1], x - 1, y - 1))
-    );
-  }
+// Definición de Biomas de Necesse y sus paletas de color
+const BIOMES = {
+  0: { name: 'Bosque / Llanuras', land: [62, 128, 25], sand: [218, 185, 122], water: [41, 137, 216], river: [55, 150, 230] },
+  1: { name: 'Desierto', land: [218, 165, 32], sand: [238, 207, 131], water: [35, 120, 190], river: [45, 130, 200] },
+  2: { name: 'Nieve', land: [220, 230, 240], sand: [180, 200, 220], water: [25, 90, 160], river: [35, 100, 170] },
+  3: { name: 'Pantano', land: [35, 75, 20], sand: [80, 90, 50], water: [30, 80, 110], river: [40, 90, 120] }
 };
 
-// Paleta de colores al estilo Necesse
-const COLOR_WATER = [41, 137, 216];     // Azul océano
-const COLOR_SAND = [218, 185, 122];     // Arena/Playa
-const COLOR_GRASS = [62, 128, 25];      // Pasto verde
-const COLOR_FOREST = [42, 92, 16];      // Bosque denso
-const COLOR_RIVER = [55, 150, 230];     // Agua de ríos internos
+// Generador de ruido para el terreno
+function pseudoNoise(seed, x, y) {
+  let n = Math.sin(x * 12.9898 + y * 78.233 + Number(seed)) * 43758.5453;
+  return n - Math.floor(n);
+}
 
+// Determina el bioma de una isla en la coordenada (worldX, worldY)
+function getBiomeId(seed, worldX, worldY) {
+  let hash = Math.floor(pseudoNoise(seed, worldX * 0.15 + 10, worldY * 0.15 + 10) * 4);
+  return Math.abs(hash) % 4;
+}
+
+// Dibuja la cuadrícula completa de islas
 function generateMap() {
-  const seedInput = document.getElementById('seed').value;
-  FastNoise.init(seedInput);
+  const seedInput = document.getElementById('seed').value || '123456';
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  const imgData = ctx.createImageData(canvas.width, canvas.height);
+  for (let gx = 0; gx < GRID_SIZE; gx++) {
+    for (let gy = 0; gy < GRID_SIZE; gy++) {
+      
+      // Coordenadas del mundo para la isla
+      const worldX = gx - Math.floor(GRID_SIZE / 2);
+      const worldY = gy - Math.floor(GRID_SIZE / 2);
+
+      // Dibujar la isla individual en su celda
+      drawSingleIsland(seedInput, worldX, worldY, gx * ISLAND_PIXEL_SIZE, gy * ISLAND_PIXEL_SIZE, ISLAND_PIXEL_SIZE);
+      
+      // Dibujar bordes de cuadrícula
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(gx * ISLAND_PIXEL_SIZE, gy * ISLAND_PIXEL_SIZE, ISLAND_PIXEL_SIZE, ISLAND_PIXEL_SIZE);
+    }
+  }
+}
+
+// Genera los píxeles de una sola isla
+function drawSingleIsland(seed, worldX, worldY, startX, startY, size) {
+  const biomeId = getBiomeId(seed, worldX, worldY);
+  const biome = BIOMES[biomeId];
+
+  const imgData = ctx.createImageData(size, size);
   const data = imgData.data;
 
-  const scale = 0.012; // Escala del terreno (cuán grande es la isla)
-  const centerX = canvas.width / 2;
-  const centerY = canvas.height / 2;
+  const center = size / 2;
 
-  for (let x = 0; x < canvas.width; x++) {
-    for (let y = 0; y < canvas.height; y++) {
-      
-      // 1. Obtener ruido de elevación
-      let nx = x * scale;
-      let ny = y * scale;
-      let elevation = FastNoise.noise(nx, ny) + 0.5 * FastNoise.noise(nx * 2, ny * 2);
+  for (let px = 0; px < size; px++) {
+    for (let py = 0; py < size; py++) {
 
-      // 2. Crear una isla circular reduciendo la altura cerca de los bordes
-      let dx = (x - centerX) / centerX;
-      let dy = (y - centerY) / centerY;
-      let distanceToCenter = Math.sqrt(dx * dx + dy * dy);
-      elevation = elevation - Math.pow(distanceToCenter, 1.8);
+      // Ruido de terreno relativo a la isla
+      let nx = (px + worldX * 100) * 0.08;
+      let ny = (py + worldY * 100) * 0.08;
+      let elevation = pseudoNoise(seed, nx, ny) + pseudoNoise(seed, nx * 2, ny * 2) * 0.5;
 
-      // 3. Ruido secundario para simular ríos internos
-      let riverNoise = Math.abs(FastNoise.noise(nx * 3 + 50, ny * 3 + 50));
+      // Forma circular/orgánica de isla rodeada por agua
+      let dx = (px - center) / center;
+      let dy = (py - center) / center;
+      let dist = Math.sqrt(dx * dx + dy * dy);
+      elevation -= Math.pow(dist, 1.6);
 
-      let color = COLOR_WATER;
+      // Ruido para ríos
+      let river = Math.abs(pseudoNoise(seed, nx * 2 + 50, ny * 2 + 50));
 
-      if (elevation > -0.15) {
+      let color = biome.water;
+
+      if (elevation > -0.2) {
         if (elevation < -0.05) {
-          color = COLOR_SAND; // Costas y orillas
+          color = biome.sand; // Costa
         } else {
-          // Si está en tierra firme, verificar si hay un río pasando
-          if (riverNoise < 0.04) {
-            color = COLOR_RIVER; // Río serpenteante
-          } else if (elevation > 0.25) {
-            color = COLOR_FOREST; // Zonas más altas/boscosas
+          if (river < 0.06 && elevation < 0.3) {
+            color = biome.river; // Río
           } else {
-            color = COLOR_GRASS; // Pasto principal
+            color = biome.land; // Tierra firme del bioma
           }
         }
       }
 
-      // Pintar píxel en el ImageData
-      const index = (y * canvas.width + x) * 4;
-      data[index] = color[0];     // R
-      data[index + 1] = color[1]; // G
-      data[index + 2] = color[2]; // B
-      data[index + 3] = 255;      // Opacidad Alpha
+      const idx = (py * size + px) * 4;
+      data[idx] = color[0];
+      data[idx + 1] = color[1];
+      data[idx + 2] = color[2];
+      data[idx + 3] = 255;
     }
   }
 
-  // Dibujar los píxeles generados en el Canvas
-  ctx.putImageData(imgData, 0, 0);
+  ctx.putImageData(imgData, startX, startY);
 }
 
-// Generar el mapa inmediatamente al cargar
+// Generar al cargar
 generateMap();
