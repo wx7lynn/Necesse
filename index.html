@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Necesse Map Finder</title>
+  <style>
+    body {
+      background-color: #121212;
+      color: #ffffff;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 0;
+      padding: 20px;
+    }
+    .controls {
+      margin-bottom: 20px;
+      display: flex;
+      gap: 10px;
+    }
+    input, button {
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid #333;
+      background: #222;
+      color: white;
+    }
+    canvas {
+      border: 2px solid #444;
+      background-color: #0b1d3a; /* Simula agua del océano */
+      cursor: crosshair;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Necesse World Map Viewer (PoC)</h1>
+  
+  <div class="controls">
+    <label for="seed">Seed:</label>
+    <input type="text" id="seed" placeholder="Ingresa la semilla..." value="123456">
+    <button onclick="generateMap()">Generar Mapa</button>
+  </div>
+
+  <canvas id="mapCanvas" width="600" height="600"></canvas>
+
+  <script src="app.js"></script>
+</body>
+</html>
